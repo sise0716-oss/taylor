@@ -12,7 +12,7 @@ export default function Layout() {
     <div className="mx-auto flex min-h-svh max-w-md flex-col bg-neutral-50 dark:bg-neutral-950">
       <header className="border-b border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
         <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-          맘마플래너+
+          아가밥
         </h1>
       </header>
 
