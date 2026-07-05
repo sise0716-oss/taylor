@@ -27,11 +27,77 @@ const emptyForm = {
   isAllergen: false,
 }
 
+const categoryDefaults: Record<Category, { tasteTags: TasteTag[]; nutrientTags: NutrientTag[] }> = {
+  곡물: { tasteTags: ['담백함'], nutrientTags: ['탄수화물'] },
+  채소: { tasteTags: ['담백함'], nutrientTags: ['식이섬유'] },
+  과일: { tasteTags: ['단맛'], nutrientTags: ['식이섬유'] },
+  육류: { tasteTags: ['감칠맛'], nutrientTags: ['단백질'] },
+  어류: { tasteTags: ['담백함'], nutrientTags: ['단백질'] },
+  유제품: { tasteTags: ['고소함'], nutrientTags: ['칼슘'] },
+  기타: { tasteTags: [], nutrientTags: [] },
+}
+
+interface BulkIngredientResult {
+  line: string
+  ok: boolean
+  reason?: string
+  name?: string
+  category?: Category
+  unit?: string
+  minStage?: Stage
+}
+
+function parseBulkIngredientLine(line: string, existingNames: Set<string>): BulkIngredientResult {
+  const parts = line.split(',').map((p) => p.trim())
+  const [name, categoryRaw, unitRaw, minStageRaw] = parts
+
+  if (!name) return { line, ok: false, reason: '이름 없음' }
+  if (existingNames.has(name.toLowerCase())) return { line, ok: false, reason: '이미 등록된 재료' }
+
+  const category = categories.includes(categoryRaw as Category) ? (categoryRaw as Category) : undefined
+  if (!category) return { line, ok: false, reason: `카테고리가 올바르지 않음 (${categories.join('/')} 중 하나)` }
+
+  const minStage = stages.includes(minStageRaw as Stage) ? (minStageRaw as Stage) : '중기'
+
+  return { line, ok: true, name, category, unit: unitRaw || 'g', minStage }
+}
+
 export default function IngredientsPage() {
   const ingredients = useLiveQuery(() => db.ingredients.orderBy('name').toArray(), [])
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [showForm, setShowForm] = useState(false)
+  const [showBulk, setShowBulk] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+  const [bulkResults, setBulkResults] = useState<BulkIngredientResult[] | null>(null)
+
+  function parseBulk() {
+    const existingNames = new Set((ingredients ?? []).map((i) => i.name.toLowerCase()))
+    const lines = bulkText.split('\n').map((l) => l.trim()).filter(Boolean)
+    setBulkResults(lines.map((line) => parseBulkIngredientLine(line, existingNames)))
+  }
+
+  async function commitBulk() {
+    if (!bulkResults) return
+    const now = new Date().toISOString()
+    for (const r of bulkResults) {
+      if (!r.ok) continue
+      const defaults = categoryDefaults[r.category!]
+      await db.ingredients.add({
+        name: r.name!,
+        category: r.category!,
+        unit: r.unit!,
+        minStage: r.minStage!,
+        tasteTags: defaults.tasteTags,
+        nutrientTags: defaults.nutrientTags,
+        isAllergen: false,
+        createdAt: now,
+      })
+    }
+    setShowBulk(false)
+    setBulkText('')
+    setBulkResults(null)
+  }
 
   function startCreate() {
     setEditingId(null)
@@ -77,12 +143,20 @@ export default function IngredientsPage() {
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
           재료 목록
         </h2>
-        <button
-          onClick={startCreate}
-          className="rounded-full bg-purple-600 px-3 py-1.5 text-sm font-medium text-white active:bg-purple-700"
-        >
-          + 재료 추가
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowBulk(true)}
+            className="rounded-full border border-purple-600 px-3 py-1.5 text-sm font-medium text-purple-600 dark:text-purple-400"
+          >
+            여러 개 한번에
+          </button>
+          <button
+            onClick={startCreate}
+            className="rounded-full bg-purple-600 px-3 py-1.5 text-sm font-medium text-white active:bg-purple-700"
+          >
+            + 재료 추가
+          </button>
+        </div>
       </div>
 
       <ul className="flex flex-col gap-2">
@@ -246,6 +320,99 @@ export default function IngredientsPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showBulk && (
+        <div
+          className="fixed inset-0 z-10 flex items-end bg-black/40"
+          onClick={() => {
+            setShowBulk(false)
+            setBulkResults(null)
+          }}
+        >
+          <div
+            className="mx-auto flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl bg-white p-4 dark:bg-neutral-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-2 font-semibold text-neutral-900 dark:text-neutral-100">여러 개 한번에 입력</h3>
+            <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
+              한 줄에 하나씩, <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">이름, 카테고리, 단위, 시작단계</code> 형식으로 붙여넣으세요. 단위·시작단계는 생략 가능(기본 g, 중기).
+              <br />
+              카테고리: {categories.join(' / ')}
+              <br />
+              예: 퀴노아, 곡물, g, 중기
+            </p>
+
+            {!bulkResults ? (
+              <>
+                <textarea
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  rows={8}
+                  placeholder={'퀴노아, 곡물, g, 중기\n오이, 채소'}
+                  className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                />
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => setShowBulk(false)}
+                    className="flex-1 rounded-lg border border-neutral-300 py-2 text-sm dark:border-neutral-700"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={parseBulk}
+                    disabled={!bulkText.trim()}
+                    className="flex-1 rounded-lg bg-purple-600 py-2 text-sm font-medium text-white disabled:opacity-40"
+                  >
+                    확인
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex-1 overflow-y-auto">
+                  <ul className="flex flex-col gap-1.5">
+                    {bulkResults.map((r, idx) => (
+                      <li
+                        key={idx}
+                        className={`rounded-lg px-2 py-1.5 text-xs ${
+                          r.ok
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                            : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+                        }`}
+                      >
+                        {r.ok ? (
+                          <>
+                            ✓ {r.name} · {r.category} · {r.unit} · {r.minStage}부터
+                          </>
+                        ) : (
+                          <>
+                            ✗ "{r.line}" — {r.reason}
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => setBulkResults(null)}
+                    className="flex-1 rounded-lg border border-neutral-300 py-2 text-sm dark:border-neutral-700"
+                  >
+                    다시 수정
+                  </button>
+                  <button
+                    onClick={commitBulk}
+                    disabled={!bulkResults.some((r) => r.ok)}
+                    className="flex-1 rounded-lg bg-purple-600 py-2 text-sm font-medium text-white disabled:opacity-40"
+                  >
+                    {bulkResults.filter((r) => r.ok).length}개 재료 추가
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
