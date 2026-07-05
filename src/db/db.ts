@@ -17,7 +17,7 @@ export class MammaDB extends Dexie {
   profile!: EntityTable<BabyProfile, 'id'>
 
   constructor() {
-    super('mamma-planner')
+    super('aga-bap')
     this.version(1).stores({
       ingredients: '++id, name, category',
       inventory: '++id, ingredientId, expirationDate',
