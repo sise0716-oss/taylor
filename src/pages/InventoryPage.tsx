@@ -37,6 +37,7 @@ interface BulkParseResult {
   ok: boolean
   reason?: string
   ingredientId?: number
+  isNewIngredient?: boolean
   name?: string
   quantity?: number
   unit?: string
@@ -50,9 +51,6 @@ function parseBulkLine(line: string, ingredientsByName: Map<string, Ingredient>)
 
   if (!name) return { line, ok: false, reason: '재료명 없음' }
 
-  const ing = ingredientsByName.get(name.toLowerCase())
-  if (!ing) return { line, ok: false, reason: `'${name}' 재료가 등록되어 있지 않음 (재료 탭에서 먼저 추가)` }
-
   const quantity = Number(qtyRaw)
   if (!qtyRaw || Number.isNaN(quantity) || quantity <= 0) return { line, ok: false, reason: '수량이 올바르지 않음' }
 
@@ -61,6 +59,21 @@ function parseBulkLine(line: string, ingredientsByName: Map<string, Ingredient>)
   }
 
   const location = locations.includes(locationRaw as StorageLocation) ? (locationRaw as StorageLocation) : '냉동'
+
+  const ing = ingredientsByName.get(name.toLowerCase())
+  if (!ing) {
+    return {
+      line,
+      ok: true,
+      isNewIngredient: true,
+      name,
+      quantity,
+      unit: unit || 'g',
+      location,
+      expirationDate,
+      reason: '새 재료로 자동 등록됨 (기타 카테고리, 재료 탭에서 보완 가능)',
+    }
+  }
 
   return {
     line,
@@ -95,10 +108,32 @@ export default function InventoryPage() {
   async function commitBulk() {
     if (!bulkResults) return
     const now = new Date().toISOString()
+    const newIngredientIds = new Map<string, number>()
+
     for (const r of bulkResults) {
       if (!r.ok) continue
+
+      let ingredientId = r.ingredientId
+      if (r.isNewIngredient) {
+        const key = r.name!.toLowerCase()
+        ingredientId = newIngredientIds.get(key)
+        if (ingredientId === undefined) {
+          ingredientId = (await db.ingredients.add({
+            name: r.name!,
+            category: '기타',
+            unit: r.unit!,
+            minStage: '중기',
+            tasteTags: [],
+            nutrientTags: [],
+            isAllergen: false,
+            createdAt: now,
+          })) as number
+          newIngredientIds.set(key, ingredientId)
+        }
+      }
+
       await db.inventory.add({
-        ingredientId: r.ingredientId!,
+        ingredientId: ingredientId!,
         quantity: r.quantity!,
         unit: r.unit!,
         location: r.location!,
@@ -322,6 +357,8 @@ export default function InventoryPage() {
               한 줄에 하나씩, <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">재료명, 수량, 단위, 보관위치, 유통기한(YYYY-MM-DD)</code> 형식으로 붙여넣으세요.
               <br />
               예: 단호박, 200, g, 냉동, 2026-07-15
+              <br />
+              등록 안 된 재료명은 "기타" 카테고리로 자동 등록돼요 (나중에 재료 탭에서 보완 가능).
             </p>
 
             {!bulkResults ? (
@@ -357,15 +394,18 @@ export default function InventoryPage() {
                       <li
                         key={idx}
                         className={`rounded-lg px-2 py-1.5 text-xs ${
-                          r.ok
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+                          !r.ok
+                            ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+                            : r.isNewIngredient
+                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                         }`}
                       >
                         {r.ok ? (
                           <>
-                            ✓ {r.name} {r.quantity}
+                            {r.isNewIngredient ? '✦' : '✓'} {r.name} {r.quantity}
                             {r.unit} · {r.location} · {r.expirationDate}
+                            {r.isNewIngredient && ' · 새 재료 자동 등록'}
                           </>
                         ) : (
                           <>
