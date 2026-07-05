@@ -79,7 +79,7 @@ export async function suggestMeal(mealType: MealType, date: string): Promise<Sug
 
   const cutoff = dayjs(date).subtract(RECENT_WINDOW_DAYS, 'day').format('YYYY-MM-DD')
   const recentMealIds = new Set(
-    meals.filter((m) => m.status === 'confirmed' && m.date >= cutoff && m.date < date).map((m) => m.id!),
+    meals.filter((m) => m.status === 'confirmed' && m.date >= cutoff && m.date <= date).map((m) => m.id!),
   )
   const lastUsedDaysAgo = new Map<number, number>()
   const recentCategoryCount = new Map<string, number>()
@@ -128,6 +128,7 @@ export async function suggestMeal(mealType: MealType, date: string): Promise<Sug
       reasons.push('최근에 안 먹어본 재료')
     } else {
       total -= Math.max(0, 3 - daysAgo) * 2
+      reasons.push(daysAgo === 0 ? '오늘 다른 끼니에도 사용됨' : `${daysAgo}일 전에도 먹음`)
     }
 
     const fb = feedbackScoreByIngredient.get(ing.id!)
