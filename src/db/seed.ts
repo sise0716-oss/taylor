@@ -246,8 +246,21 @@ export async function seedIfEmpty() {
     await db.ingredients.bulkAdd(missing.map((ing) => ({ ...ing, createdAt: now })))
   }
 
-  const profileCount = await db.profile.count()
-  if (profileCount === 0) {
+  const profiles = await db.profile.toArray()
+  if (profiles.length === 0) {
     await db.profile.add({ birthDate: '', allergyIngredientIds: [], avoidIngredientIds: [], mealTargetGrams: {} })
+    return
+  }
+
+  // Backfill fields added after some users already had a profile row, so older
+  // browsers don't crash on `undefined` when the settings page reads them.
+  const profile = profiles[0]
+  const patch: Partial<typeof profile> = {}
+  if (profile.birthDate === undefined) patch.birthDate = ''
+  if (profile.allergyIngredientIds === undefined) patch.allergyIngredientIds = []
+  if (profile.avoidIngredientIds === undefined) patch.avoidIngredientIds = []
+  if (profile.mealTargetGrams === undefined) patch.mealTargetGrams = {}
+  if (Object.keys(patch).length > 0) {
+    await db.profile.update(profile.id!, patch)
   }
 }
