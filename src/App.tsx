@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { HashRouter, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import { seedIfEmpty } from './db/seed'
 import IngredientsPage from './pages/IngredientsPage'
@@ -17,7 +17,7 @@ function App() {
   if (!ready) return null
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<PlanPage />} />
@@ -26,7 +26,7 @@ function App() {
           <Route path="history" element={<HistoryPage />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
 
