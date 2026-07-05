@@ -1,4 +1,5 @@
 import dayjs from 'dayjs'
+import { ageInMonths, resolveStage } from '../db/age'
 import { db } from '../db/db'
 import type { Ingredient, MealType, Stage } from '../db/types'
 
@@ -19,6 +20,15 @@ const STAGE_DEFAULT_QTY: Record<Stage, number> = {
 }
 
 const RECENT_WINDOW_DAYS = 3
+
+const IRON_BOOST_MIN_MONTHS = 9
+const IRON_BOOST_MAX_MONTHS = 24
+
+function slotWeights(slotCount: number): number[] {
+  if (slotCount === 1) return [1]
+  if (slotCount === 3) return [0.4, 0.35, 0.25]
+  return Array(slotCount).fill(1 / slotCount)
+}
 
 const REACTION_WEIGHT: Record<string, number> = {
   like: 2,
@@ -62,8 +72,13 @@ export async function suggestMeal(mealType: MealType, date: string): Promise<Sug
     db.feedback.toArray(),
   ])
 
-  const stage = profiles[0]?.stage ?? '중기'
-  const allergyIds = new Set(profiles[0]?.allergyIngredientIds ?? [])
+  const profile = profiles[0]
+  const stage = resolveStage(profile?.birthDate, dayjs(date))
+  const ageMonths = ageInMonths(profile?.birthDate, dayjs(date))
+  const ironBoostActive = ageMonths != null && ageMonths >= IRON_BOOST_MIN_MONTHS && ageMonths <= IRON_BOOST_MAX_MONTHS
+  const allergyIds = new Set(profile?.allergyIngredientIds ?? [])
+  const avoidIds = new Set(profile?.avoidIngredientIds ?? [])
+  const mealTargetGrams = profile?.mealTargetGrams?.[mealType]
   const stageRank = STAGE_ORDER.indexOf(stage)
 
   const qtyByIngredient = new Map<number, number>()
@@ -141,28 +156,41 @@ export async function suggestMeal(mealType: MealType, date: string): Promise<Sug
     const recentCatCount = recentCategoryCount.get(ing.category) ?? 0
     total += Math.max(0, 3 - recentCatCount)
 
+    if (ironBoostActive && ing.nutrientTags.includes('철분')) {
+      total += 4
+      reasons.push('철분 보강 필요 시기(9~24개월)')
+    }
+
     return { total, reasons }
   }
 
   const eligible = ingredients.filter(
-    (ing) => STAGE_ORDER.indexOf(ing.minStage) <= stageRank && !allergyIds.has(ing.id!) && (qtyByIngredient.get(ing.id!) ?? 0) > 0,
+    (ing) =>
+      STAGE_ORDER.indexOf(ing.minStage) <= stageRank &&
+      !allergyIds.has(ing.id!) &&
+      !avoidIds.has(ing.id!) &&
+      (qtyByIngredient.get(ing.id!) ?? 0) > 0,
   )
 
   const slots = slotsForMealType(mealType)
+  const weights = slotWeights(slots.length)
+  const totalTarget = mealTargetGrams ?? STAGE_DEFAULT_QTY[stage] * slots.length
+
   const picked: SuggestedItem[] = []
   const pickedIds = new Set<number>()
 
-  for (const groupFilter of slots) {
+  slots.forEach((groupFilter, idx) => {
     const candidates = eligible
       .filter((ing) => groupFilter(ing) && !pickedIds.has(ing.id!))
       .map((ing) => ({ ing, ...score(ing) }))
       .sort((a, b) => b.total - a.total)
 
     const best = candidates[0]
-    if (!best) continue
+    if (!best) return
 
     const available = qtyByIngredient.get(best.ing.id!) ?? 0
-    const quantity = Math.min(STAGE_DEFAULT_QTY[stage], available)
+    const targetForSlot = Math.round(totalTarget * weights[idx])
+    const quantity = Math.min(targetForSlot, available)
 
     picked.push({
       ingredientId: best.ing.id!,
@@ -171,7 +199,7 @@ export async function suggestMeal(mealType: MealType, date: string): Promise<Sug
       reasons: best.reasons.length ? best.reasons : ['영양 균형을 위해 선택'],
     })
     pickedIds.add(best.ing.id!)
-  }
+  })
 
   return picked
 }

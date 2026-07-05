@@ -248,6 +248,6 @@ export async function seedIfEmpty() {
 
   const profileCount = await db.profile.count()
   if (profileCount === 0) {
-    await db.profile.add({ stage: '중기', allergyIngredientIds: [] })
+    await db.profile.add({ birthDate: '', allergyIngredientIds: [], avoidIngredientIds: [], mealTargetGrams: {} })
   }
 }

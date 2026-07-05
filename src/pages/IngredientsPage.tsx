@@ -70,11 +70,17 @@ export default function IngredientsPage() {
   const [showBulk, setShowBulk] = useState(false)
   const [bulkText, setBulkText] = useState('')
   const [bulkResults, setBulkResults] = useState<BulkIngredientResult[] | null>(null)
+  const [formError, setFormError] = useState('')
 
   function parseBulk() {
     const existingNames = new Set((ingredients ?? []).map((i) => i.name.toLowerCase()))
     const lines = bulkText.split('\n').map((l) => l.trim()).filter(Boolean)
-    setBulkResults(lines.map((line) => parseBulkIngredientLine(line, existingNames)))
+    const results = lines.map((line) => {
+      const result = parseBulkIngredientLine(line, existingNames)
+      if (result.ok) existingNames.add(result.name!.toLowerCase())
+      return result
+    })
+    setBulkResults(results)
   }
 
   async function commitBulk() {
@@ -102,6 +108,7 @@ export default function IngredientsPage() {
   function startCreate() {
     setEditingId(null)
     setForm(emptyForm)
+    setFormError('')
     setShowForm(true)
   }
 
@@ -116,15 +123,26 @@ export default function IngredientsPage() {
       nutrientTags: ing.nutrientTags,
       isAllergen: ing.isAllergen,
     })
+    setFormError('')
     setShowForm(true)
   }
 
   async function submit() {
-    if (!form.name.trim()) return
+    const name = form.name.trim()
+    if (!name) return
+
+    const duplicate = (ingredients ?? []).find(
+      (ing) => ing.name.toLowerCase() === name.toLowerCase() && ing.id !== editingId,
+    )
+    if (duplicate) {
+      setFormError(`'${name}'은(는) 이미 등록되어 있어요.`)
+      return
+    }
+
     if (editingId == null) {
-      await db.ingredients.add({ ...form, createdAt: new Date().toISOString() })
+      await db.ingredients.add({ ...form, name, createdAt: new Date().toISOString() })
     } else {
-      await db.ingredients.update(editingId, { ...form })
+      await db.ingredients.update(editingId, { ...form, name })
     }
     setShowForm(false)
   }
@@ -219,9 +237,13 @@ export default function IngredientsPage() {
               <input
                 placeholder="재료 이름"
                 value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, name: e.target.value })
+                  setFormError('')
+                }}
                 className="rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
               />
+              {formError && <p className="text-xs text-red-600 dark:text-red-400">{formError}</p>}
 
               <div className="flex gap-2">
                 <select

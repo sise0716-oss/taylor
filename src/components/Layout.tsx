@@ -5,6 +5,7 @@ const tabs = [
   { to: '/inventory', label: '재고', icon: '📦' },
   { to: '/ingredients', label: '재료', icon: '🥕' },
   { to: '/history', label: '기록', icon: '📝' },
+  { to: '/settings', label: '설정', icon: '⚙️' },
 ]
 
 export default function Layout() {
