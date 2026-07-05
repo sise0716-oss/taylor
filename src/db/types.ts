@@ -74,6 +74,8 @@ export interface Feedback {
 
 export interface BabyProfile {
   id?: number
-  stage: Stage
+  birthDate: string
   allergyIngredientIds: number[]
+  avoidIngredientIds: number[]
+  mealTargetGrams: Partial<Record<MealType, number>>
 }
