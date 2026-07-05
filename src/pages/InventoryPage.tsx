@@ -1,6 +1,7 @@
 import dayjs from 'dayjs'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
+import SearchSelect from '../components/SearchSelect'
 import { db } from '../db/db'
 import type { Ingredient, InventoryItem, StorageLocation } from '../db/types'
 
@@ -260,21 +261,15 @@ export default function InventoryPage() {
             </h3>
 
             <div className="flex flex-col gap-3">
-              <select
+              <SearchSelect
+                options={(ingredients ?? []).map((ing) => ({ id: ing.id!, label: ing.name, sublabel: ing.category }))}
                 value={form.ingredientId}
-                onChange={(e) => {
-                  const id = Number(e.target.value)
+                placeholder="재료 검색..."
+                onChange={(id) => {
                   const ing = ingredientMap.get(id)
                   setForm({ ...form, ingredientId: id, unit: ing?.unit ?? form.unit })
                 }}
-                className="rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
-              >
-                {ingredients?.map((ing) => (
-                  <option key={ing.id} value={ing.id}>
-                    {ing.name}
-                  </option>
-                ))}
-              </select>
+              />
 
               <div className="flex gap-2">
                 <input

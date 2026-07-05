@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
+import SearchSelect from './SearchSelect'
 import { db } from '../db/db'
 import { deductInventory } from '../db/inventoryOps'
 import { suggestMeal, type SuggestedItem } from '../recommend/engine'
@@ -187,19 +188,16 @@ export default function DayPlanner({ date, mealType, onDateChange, onMealTypeCha
           </ul>
 
           {unusedIngredients.length > 0 && (
-            <select
-              value=""
-              onChange={(e) => e.target.value && addIngredient(Number(e.target.value))}
-              className="rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
-            >
-              <option value="">+ 재료 직접 추가</option>
-              {unusedIngredients.map((ing) => (
-                <option key={ing.id} value={ing.id}>
-                  {ing.name} (재고 {availableQty.get(ing.id!)}
-                  {ing.unit})
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              options={unusedIngredients.map((ing) => ({
+                id: ing.id!,
+                label: ing.name,
+                sublabel: `재고 ${availableQty.get(ing.id!)}${ing.unit}`,
+              }))}
+              value={0}
+              placeholder="+ 재료 직접 추가"
+              onChange={(id) => addIngredient(id)}
+            />
           )}
 
           <div className="mt-2 flex gap-2">
