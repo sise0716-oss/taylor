@@ -189,9 +189,19 @@ export default function IngredientsPage() {
                   <span className="font-medium text-neutral-900 dark:text-neutral-100">
                     {ing.name}
                   </span>
-                  <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                    {ing.category}
-                  </span>
+                  <select
+                    value={ing.category}
+                    onChange={(e) => db.ingredients.update(ing.id!, { category: e.target.value as Category })}
+                    onClick={(e) => e.stopPropagation()}
+                    title="탭해서 카테고리 바로 수정"
+                    className="rounded border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
+                  >
+                    {categories.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
                   <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                     {ing.minStage}~
                   </span>
