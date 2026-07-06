@@ -19,6 +19,8 @@ const grains: SeedIngredient[] = [
   { name: '메밀', category: '곡물', unit: 'g', minStage: '후기', tasteTags: ['담백함'], nutrientTags: ['탄수화물', '식이섬유'], isAllergen: true },
   { name: '좁쌀', category: '곡물', unit: 'g', minStage: '중기', tasteTags: ['담백함'], nutrientTags: ['탄수화물'], isAllergen: false },
   { name: '옥수수가루', category: '곡물', unit: 'g', minStage: '중기', tasteTags: ['단맛'], nutrientTags: ['탄수화물', '식이섬유'], isAllergen: false },
+  { name: '퀴노아', category: '곡물', unit: 'g', minStage: '중기', tasteTags: ['고소함', '담백함'], nutrientTags: ['탄수화물', '단백질'], isAllergen: false },
+  { name: '잡곡무른밥', category: '곡물', unit: 'g', minStage: '중기', tasteTags: ['담백함'], nutrientTags: ['탄수화물', '식이섬유'], isAllergen: false },
 ]
 
 const vegetables: SeedIngredient[] = [
@@ -232,18 +234,43 @@ const seedIngredients: SeedIngredient[] = [
   ...others,
 ]
 
+function looksLikeUnfinishedAutoCreate(ing: Ingredient): boolean {
+  return (
+    ing.category === '기타' &&
+    ing.tasteTags.length === 0 &&
+    ing.nutrientTags.length === 0 &&
+    !ing.isAllergen
+  )
+}
+
 /**
  * Adds any ingredient from the master seed list that isn't already present (by name),
- * and creates a default profile on first run. Safe to call on every app load.
+ * upgrades ones that were auto-created as an untagged "기타" placeholder (e.g. via
+ * bulk inventory import before the name existed in the seed list) to the proper seed
+ * definition, and creates a default profile on first run. Safe to call on every app load.
  */
 export async function seedIfEmpty() {
   const existing = await db.ingredients.toArray()
-  const existingNames = new Set(existing.map((i) => i.name.toLowerCase()))
-  const missing = seedIngredients.filter((ing) => !existingNames.has(ing.name.toLowerCase()))
+  const existingByName = new Map(existing.map((i) => [i.name.toLowerCase(), i]))
+  const missing = seedIngredients.filter((ing) => !existingByName.has(ing.name.toLowerCase()))
 
   if (missing.length > 0) {
     const now = new Date().toISOString()
     await db.ingredients.bulkAdd(missing.map((ing) => ({ ...ing, createdAt: now })))
+  }
+
+  for (const seedIng of seedIngredients) {
+    const current = existingByName.get(seedIng.name.toLowerCase())
+    if (current?.id != null && looksLikeUnfinishedAutoCreate(current)) {
+      await db.ingredients.update(current.id, {
+        category: seedIng.category,
+        unit: seedIng.unit,
+        minStage: seedIng.minStage,
+        tasteTags: seedIng.tasteTags,
+        nutrientTags: seedIng.nutrientTags,
+        isAllergen: seedIng.isAllergen,
+      })
+    }
   }
 
   const profiles = await db.profile.toArray()
