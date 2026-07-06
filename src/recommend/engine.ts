@@ -31,8 +31,10 @@ const SNACK_DEFAULT_TOTAL = 50
 const RECENT_WINDOW_DAYS = 3
 const BATCH_RECENT_WINDOW_DAYS = 6
 
-const IRON_BOOST_MIN_MONTHS = 9
-const IRON_BOOST_MAX_MONTHS = 24
+// 이유식은 늦어도 생후 6개월부터 고기를 시작해야 하고, 영아기 철 결핍을 막기 위해
+// 헴철(육류·어류) 공급원을 꾸준히(사실상 매일) 챙겨야 한다는 게 표준 소아영양 권고임.
+// 헴철은 비헴철(채소 등)보다 흡수율이 훨씬 높아 같은 "철분" 태그라도 비중을 다르게 둠.
+const IRON_PRIORITY_MIN_MONTHS = 6
 
 const REACTION_WEIGHT: Record<string, number> = {
   like: 2,
@@ -51,6 +53,11 @@ const AMOUNT_WEIGHT: Record<string, number> = {
 
 function isProtein(ing: Ingredient) {
   return ing.category === '육류' || ing.category === '어류' || ing.nutrientTags.includes('단백질')
+}
+
+// 헴철(흡수율 높은 철분) 공급원: 육류·어류. 채소류의 철분(비헴철)은 흡수율이 낮아 별도 취급.
+function isHemeIronSource(ing: Ingredient) {
+  return (ing.category === '육류' || ing.category === '어류') && ing.nutrientTags.includes('철분')
 }
 
 type SlotGroup = (ing: Ingredient) => boolean
@@ -154,7 +161,7 @@ function pickMeal(
 ): SuggestedItem[] {
   const stage = resolveStage(ctx.profile?.birthDate, dayjs(date))
   const ageMonths = ageInMonths(ctx.profile?.birthDate, dayjs(date))
-  const ironBoostActive = ageMonths != null && ageMonths >= IRON_BOOST_MIN_MONTHS && ageMonths <= IRON_BOOST_MAX_MONTHS
+  const ironPriorityActive = ageMonths != null && ageMonths >= IRON_PRIORITY_MIN_MONTHS
   const allergyIds = new Set(ctx.profile?.allergyIngredientIds ?? [])
   const avoidIds = new Set(ctx.profile?.avoidIngredientIds ?? [])
   const mealTargetGrams = ctx.profile?.mealTargetGrams?.[mealType]
@@ -162,6 +169,15 @@ function pickMeal(
 
   const cutoff = dayjs(date).subtract(recentWindowDays, 'day').format('YYYY-MM-DD')
   const recentMeals = plannedMeals.filter((m) => m.date >= cutoff && m.date <= date)
+
+  const hemeIronUsedToday = plannedMeals.some(
+    (m) =>
+      m.date === date &&
+      m.items.some((item) => {
+        const ing = ctx.ingredientById.get(item.ingredientId)
+        return ing != null && isHemeIronSource(ing)
+      }),
+  )
 
   const lastUsedDaysAgo = new Map<number, number>()
   const recentCategoryCount = new Map<string, number>()
@@ -208,9 +224,19 @@ function pickMeal(
     const recentCatCount = recentCategoryCount.get(ing.category) ?? 0
     total += Math.max(0, 3 - recentCatCount)
 
-    if (ironBoostActive && ing.nutrientTags.includes('철분')) {
-      total += 4
-      reasons.push('철분 보강 필요 시기(9~24개월)')
+    if (ironPriorityActive && ing.nutrientTags.includes('철분')) {
+      if (isHemeIronSource(ing)) {
+        if (!hemeIronUsedToday) {
+          // 오늘 아직 헴철(고기·생선) 공급원을 안 먹었으면, 다른 요인을 압도할 만큼 강하게 우선
+          total += 20
+          reasons.push('오늘의 철분(헴철) 공급원으로 우선 추천')
+        } else {
+          total += 2
+        }
+      } else {
+        total += 1
+        reasons.push('철분 함유(비헴철)')
+      }
     }
 
     return { total, reasons }
