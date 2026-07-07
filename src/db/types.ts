@@ -36,6 +36,8 @@ export interface InventoryItem {
   purchaseDate: string
   expirationDate: string
   location: StorageLocation
+  /** Set when this batch is frozen into fixed-size cubes/portions (grams per cube). */
+  servingSizeGrams?: number
   createdAt: string
 }
 

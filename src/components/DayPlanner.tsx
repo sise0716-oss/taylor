@@ -174,12 +174,14 @@ export default function DayPlanner({ date, mealType, onDateChange, onMealTypeCha
                       type="number"
                       value={item.quantity}
                       max={max}
+                      step={item.servingSizeGrams ?? 1}
                       onChange={(e) => updateQty(idx, Math.min(Number(e.target.value), max))}
                       className="w-20 rounded-lg border border-neutral-300 px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-800"
                     />
                     <span className="text-xs text-neutral-400">
                       {item.unit} (최대 {max}
                       {item.unit})
+                      {item.servingSizeGrams && ` · 큐브당 ${item.servingSizeGrams}${item.unit}`}
                     </span>
                   </div>
                 </li>

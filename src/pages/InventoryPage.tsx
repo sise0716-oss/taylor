@@ -31,6 +31,9 @@ const emptyForm = {
   purchaseDate: todayISO(),
   expirationDate: dayjs().add(7, 'day').format('YYYY-MM-DD'),
   location: '냉동' as StorageLocation,
+  isCubed: false,
+  servingSizeGrams: 10,
+  cubeCount: 1,
 }
 
 interface BulkParseResult {
@@ -44,11 +47,12 @@ interface BulkParseResult {
   unit?: string
   location?: StorageLocation
   expirationDate?: string
+  servingSizeGrams?: number
 }
 
 function parseBulkLine(line: string, ingredientsByName: Map<string, Ingredient>): BulkParseResult {
   const parts = line.split(',').map((p) => p.trim())
-  const [name, qtyRaw, unit, locationRaw, expirationDate] = parts
+  const [name, qtyRaw, unit, locationRaw, expirationDate, servingSizeRaw] = parts
 
   if (!name) return { line, ok: false, reason: '재료명 없음' }
 
@@ -61,6 +65,13 @@ function parseBulkLine(line: string, ingredientsByName: Map<string, Ingredient>)
 
   const location = locations.includes(locationRaw as StorageLocation) ? (locationRaw as StorageLocation) : '냉동'
 
+  let servingSizeGrams: number | undefined
+  if (servingSizeRaw) {
+    const parsed = Number(servingSizeRaw)
+    if (Number.isNaN(parsed) || parsed <= 0) return { line, ok: false, reason: '큐브당 g이 올바르지 않음' }
+    servingSizeGrams = parsed
+  }
+
   const ing = ingredientsByName.get(name.toLowerCase())
   if (!ing) {
     return {
@@ -72,6 +83,7 @@ function parseBulkLine(line: string, ingredientsByName: Map<string, Ingredient>)
       unit: unit || 'g',
       location,
       expirationDate,
+      servingSizeGrams,
       reason: '새 재료로 자동 등록됨 (기타 카테고리, 재료 탭에서 보완 가능)',
     }
   }
@@ -85,6 +97,7 @@ function parseBulkLine(line: string, ingredientsByName: Map<string, Ingredient>)
     unit: unit || ing.unit,
     location,
     expirationDate,
+    servingSizeGrams,
   }
 }
 
@@ -139,6 +152,7 @@ export default function InventoryPage() {
         unit: r.unit!,
         location: r.location!,
         expirationDate: r.expirationDate!,
+        servingSizeGrams: r.servingSizeGrams,
         purchaseDate: todayISO(),
         createdAt: now,
       })
@@ -156,6 +170,7 @@ export default function InventoryPage() {
 
   function startEdit(item: InventoryItem) {
     setEditingId(item.id!)
+    const isCubed = item.servingSizeGrams != null && item.servingSizeGrams > 0
     setForm({
       ingredientId: item.ingredientId,
       quantity: item.quantity,
@@ -163,16 +178,29 @@ export default function InventoryPage() {
       purchaseDate: item.purchaseDate,
       expirationDate: item.expirationDate,
       location: item.location,
+      isCubed,
+      servingSizeGrams: isCubed ? item.servingSizeGrams! : emptyForm.servingSizeGrams,
+      cubeCount: isCubed ? Math.round(item.quantity / item.servingSizeGrams!) : emptyForm.cubeCount,
     })
     setShowForm(true)
   }
 
   async function submit() {
     if (!form.ingredientId) return
+    const quantity = form.isCubed ? form.servingSizeGrams * form.cubeCount : form.quantity
+    const record = {
+      ingredientId: form.ingredientId,
+      quantity,
+      unit: form.unit,
+      purchaseDate: form.purchaseDate,
+      expirationDate: form.expirationDate,
+      location: form.location,
+      servingSizeGrams: form.isCubed ? form.servingSizeGrams : undefined,
+    }
     if (editingId == null) {
-      await db.inventory.add({ ...form, createdAt: new Date().toISOString() })
+      await db.inventory.add({ ...record, createdAt: new Date().toISOString() })
     } else {
-      await db.inventory.update(editingId, { ...form })
+      await db.inventory.update(editingId, record)
     }
     setShowForm(false)
   }
@@ -227,10 +255,27 @@ export default function InventoryPage() {
                       {ing?.name ?? '(삭제된 재료)'}
                     </span>
                     <span className={`rounded px-1.5 py-0.5 text-xs ${badge.className}`}>{badge.text}</span>
+                    {item.servingSizeGrams && (
+                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                        큐브
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                    {item.quantity}
-                    {item.unit} · {item.location} · 유통기한 {item.expirationDate}
+                    {item.servingSizeGrams ? (
+                      <>
+                        {item.servingSizeGrams}
+                        {item.unit} × {Math.round(item.quantity / item.servingSizeGrams)}개 (
+                        {item.quantity}
+                        {item.unit})
+                      </>
+                    ) : (
+                      <>
+                        {item.quantity}
+                        {item.unit}
+                      </>
+                    )}{' '}
+                    · {item.location} · 유통기한 {item.expirationDate}
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-2 text-xs">
@@ -271,19 +316,61 @@ export default function InventoryPage() {
                 }}
               />
 
+              <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+                <input
+                  type="checkbox"
+                  checked={form.isCubed}
+                  onChange={(e) => setForm({ ...form, isCubed: e.target.checked })}
+                />
+                큐브(고정 단위)로 냉동 보관 — 정해진 g씩만 소진
+              </label>
+
+              {form.isCubed ? (
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={form.servingSizeGrams}
+                    onChange={(e) => setForm({ ...form, servingSizeGrams: Number(e.target.value) })}
+                    className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                    placeholder="큐브당 g"
+                  />
+                  <input
+                    value={form.unit}
+                    onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                    className="w-14 rounded-lg border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                  />
+                  <input
+                    type="number"
+                    value={form.cubeCount}
+                    onChange={(e) => setForm({ ...form, cubeCount: Number(e.target.value) })}
+                    className="w-20 rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                    placeholder="개수"
+                  />
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={form.quantity}
+                    onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
+                    className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                    placeholder="수량"
+                  />
+                  <input
+                    value={form.unit}
+                    onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                    className="w-16 rounded-lg border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                  />
+                </div>
+              )}
+              {form.isCubed && (
+                <p className="text-xs text-neutral-400">
+                  총 {form.servingSizeGrams * form.cubeCount}
+                  {form.unit}
+                </p>
+              )}
+
               <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={form.quantity}
-                  onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
-                  className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
-                  placeholder="수량"
-                />
-                <input
-                  value={form.unit}
-                  onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                  className="w-16 rounded-lg border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
-                />
                 <select
                   value={form.location}
                   onChange={(e) => setForm({ ...form, location: e.target.value as StorageLocation })}
@@ -349,9 +436,9 @@ export default function InventoryPage() {
           >
             <h3 className="mb-2 font-semibold text-neutral-900 dark:text-neutral-100">여러 개 한번에 입력</h3>
             <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
-              한 줄에 하나씩, <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">재료명, 수량, 단위, 보관위치, 유통기한(YYYY-MM-DD)</code> 형식으로 붙여넣으세요.
+              한 줄에 하나씩, <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">재료명, 수량, 단위, 보관위치, 유통기한(YYYY-MM-DD), 큐브당g(선택)</code> 형식으로 붙여넣으세요.
               <br />
-              예: 단호박, 200, g, 냉동, 2026-07-15
+              예: 단호박, 200, g, 냉동, 2026-07-15 (일반) / 단호박, 200, g, 냉동, 2026-07-15, 10 (10g 큐브 20개)
               <br />
               등록 안 된 재료명은 "기타" 카테고리로 자동 등록돼요 (나중에 재료 탭에서 보완 가능).
             </p>
@@ -399,7 +486,10 @@ export default function InventoryPage() {
                         {r.ok ? (
                           <>
                             {r.isNewIngredient ? '✦' : '✓'} {r.name} {r.quantity}
-                            {r.unit} · {r.location} · {r.expirationDate}
+                            {r.unit}
+                            {r.servingSizeGrams &&
+                              ` (${r.servingSizeGrams}${r.unit} × ${Math.round(r.quantity! / r.servingSizeGrams)}개)`}{' '}
+                            · {r.location} · {r.expirationDate}
                             {r.isNewIngredient && ' · 새 재료 자동 등록'}
                           </>
                         ) : (

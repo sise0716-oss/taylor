@@ -8,6 +8,7 @@ export interface SuggestedItem {
   quantity: number
   unit: string
   reasons: string[]
+  servingSizeGrams?: number
 }
 
 export interface WeekSuggestion {
@@ -95,6 +96,7 @@ interface EngineContext {
   ingredientById: Map<number, Ingredient>
   qtyByIngredient: Map<number, number>
   nearestExpiryByIngredient: Map<number, string>
+  servingSizeByIngredient: Map<number, number>
   feedbackScoreByIngredient: Map<number, number>
   confirmedMeals: PlannedMeal[]
 }
@@ -113,12 +115,19 @@ async function loadContext(): Promise<EngineContext> {
 
   const qtyByIngredient = new Map<number, number>()
   const nearestExpiryByIngredient = new Map<number, string>()
+  const servingSizeByIngredient = new Map<number, number>()
   for (const item of inventory) {
     if (item.quantity <= 0) continue
     qtyByIngredient.set(item.ingredientId, (qtyByIngredient.get(item.ingredientId) ?? 0) + item.quantity)
     const prev = nearestExpiryByIngredient.get(item.ingredientId)
     if (!prev || item.expirationDate < prev) {
       nearestExpiryByIngredient.set(item.ingredientId, item.expirationDate)
+    }
+    if (item.servingSizeGrams && item.servingSizeGrams > 0) {
+      const prevServing = servingSizeByIngredient.get(item.ingredientId)
+      if (!prevServing || item.servingSizeGrams < prevServing) {
+        servingSizeByIngredient.set(item.ingredientId, item.servingSizeGrams)
+      }
     }
   }
 
@@ -147,6 +156,7 @@ async function loadContext(): Promise<EngineContext> {
     ingredientById,
     qtyByIngredient,
     nearestExpiryByIngredient,
+    servingSizeByIngredient,
     feedbackScoreByIngredient,
     confirmedMeals,
   }
@@ -268,7 +278,17 @@ function pickMeal(
 
     const available = ctx.qtyByIngredient.get(best.ing.id!) ?? 0
     const targetForSlot = Math.round(totalTarget * weights[idx])
-    const quantity = Math.min(targetForSlot, available)
+    const servingSize = ctx.servingSizeByIngredient.get(best.ing.id!)
+
+    let quantity: number
+    if (servingSize) {
+      const maxServings = Math.floor(available / servingSize)
+      if (maxServings <= 0) return
+      const servings = Math.min(Math.max(Math.round(targetForSlot / servingSize), 1), maxServings)
+      quantity = servings * servingSize
+    } else {
+      quantity = Math.min(targetForSlot, available)
+    }
     if (quantity <= 0) return
 
     picked.push({
@@ -276,6 +296,7 @@ function pickMeal(
       quantity,
       unit: best.ing.unit,
       reasons: best.reasons.length ? best.reasons : ['영양 균형을 위해 선택'],
+      servingSizeGrams: servingSize,
     })
     pickedIds.add(best.ing.id!)
   })
